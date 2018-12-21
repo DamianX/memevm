@@ -9,6 +9,8 @@ use crate::bits::DiagnosticStatus;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+mod support;
+
 extern crate gfx_gl as gl;
 
 type ColorFormat = gfx::format::Rgba8;
@@ -16,7 +18,6 @@ type DepthFormat = gfx::format::DepthStencil;
 type Encoder = gfx::Encoder<Resources, CommandBuffer>;
 type RenderTargetView = gfx::handle::RenderTargetView<Resources, ColorFormat>;
 type DepthStencilView = gfx::handle::DepthStencilView<Resources, DepthFormat>;
-type Texture = gfx::handle::ShaderResourceView<Resources, [f32; 4]>;
 type ImRenderer = imgui_gfx_renderer::Renderer<Resources>;
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
@@ -26,7 +27,7 @@ struct MouseState {
     wheel: f32,
 }
 
-struct Scene {
+pub struct Scene {
     diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>,
     registers_window_enabled: bool,
     memory_window_enabled: bool,
@@ -35,9 +36,6 @@ struct Scene {
 }
 impl Scene {
     fn new(
-        factory: &mut Factory,
-        target: &RenderTargetView,
-        depth: &DepthStencilView,
         diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>,
     ) -> Self {
         Scene {
@@ -49,36 +47,11 @@ impl Scene {
         }
     }
 
-    fn mouse_wheel(&mut self, ctrl: bool, shift: bool, alt: bool, x: f32, y: f32) {}
-
-    fn update_render_target(&mut self, target: &RenderTargetView, depth: &DepthStencilView) {
-        //self.target = target.clone();
-        //self.depth = depth.clone();
-    }
-
-    fn chord(&mut self, ctrl: bool, shift: bool, alt: bool, key: Key) {}
-    fn mouse_moved(&mut self, (x, y): (i32, i32)) {
-        //self.last_mouse_pos = (x, y);
-        //self.target_tile = self.tile_under((x, y));
-    }
-    fn run_ui(&mut self, ui: &Ui, renderer: &mut ImRenderer) -> bool {
-        #[cfg(not(target_os = "macos"))]
-        macro_rules! ctrl_shortcut {
-            ($rest:expr) => {
-                im_str!("Ctrl+{}", $rest)
-            };
-        }
-        #[cfg(target_os = "macos")]
-        macro_rules! ctrl_shortcut {
-            ($rest:expr) => {
-                im_str!("Cmd+{}", $rest)
-            };
-        }
+    fn run_ui(&mut self, ui: &Ui) -> bool {
         ui.main_menu_bar(|| {
             ui.menu(im_str!("File")).build(|| {
                 if ui
                     .menu_item(im_str!("Open"))
-                    .shortcut(ctrl_shortcut!("Shift+O"))
                     .build()
                 {
                     println!("Open")
@@ -92,7 +65,6 @@ impl Scene {
         self.show_console_window(ui);
         true
     }
-    fn render(&mut self, encoder: &mut Encoder) {}
 
     fn try_update_diagnostics(&mut self) {
         if let Ok(mut diagnostics_lock) = self.diagnostics_mutex.try_lock() {
@@ -147,16 +119,15 @@ fn configure_keys(imgui: &mut ImGui) {}
 
 pub fn run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
     thread::spawn(move || {
-        actual_run(diagnostics_mutex);
+        let scene = Scene::new(diagnostics_mutex);
+        support::run("lc3vm".to_owned(), [0.25, 0.25, 0.5, 1.0], scene);
     });
 }
 
-fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
+/*fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
     use gfx::{self, Device};
     use gfx_window_glutin;
     use glutin::{self, GlContext};
-
-    let clear_color = [0.25, 0.25, 0.5, 1.0];
 
     let mut events_loop = glutin::EventsLoop::new();
     let context = glutin::ContextBuilder::new().with_vsync(true);
@@ -251,7 +222,6 @@ fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
                         gfx_window_glutin::update_views(&window, &mut main_color, &mut main_depth);
                         window.resize(new_logical_size.to_physical(hidpi_factor));
                         renderer.update_render_target(main_color.clone());
-                        scene.update_render_target(&main_color, &main_depth);
                         frame_size.logical_size = new_logical_size
                             .to_physical(window_hidpi_factor)
                             .to_logical(hidpi_factor)
@@ -285,12 +255,6 @@ fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
                             Some(Key::Tab) => imgui.set_key(0, pressed),
                             _ => {}
                         }
-
-                        if pressed && !kbd_captured {
-                            if let Some(key) = input.virtual_keycode {
-                                scene.chord(ctrl(&imgui), imgui.key_shift(), imgui.key_alt(), key);
-                            }
-                        }
                     }
                     CursorMoved { position, .. } => {
                         // Rescale position from glutin logical coordinates to our logical
@@ -300,7 +264,6 @@ fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
                             .to_logical(hidpi_factor)
                             .into();
                         mouse_state.pos = pos;
-                        scene.mouse_moved(pos);
                     }
                     MouseInput { state, button, .. } => match button {
                         MouseButton::Left => mouse_state.pressed[0] = state == Pressed,
@@ -318,15 +281,6 @@ fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
                         ..
                     } => {
                         mouse_state.wheel = y;
-                        if !mouse_captured {
-                            scene.mouse_wheel(
-                                ctrl(&imgui),
-                                imgui.key_shift(),
-                                imgui.key_alt(),
-                                4.0 * 32.0 * x,
-                                4.0 * 32.0 * y,
-                            );
-                        }
                     }
                     MouseWheel {
                         delta: MouseScrollDelta::PixelDelta(pos),
@@ -339,19 +293,6 @@ fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
                             .to_physical(window_hidpi_factor)
                             .to_logical(hidpi_factor);
                         mouse_state.wheel = diff.y as f32;
-                        if !mouse_captured {
-                            #[cfg(not(target_os = "macos"))]
-                            let diff_x = diff.x as f32;
-                            #[cfg(target_os = "macos")]
-                            let diff_x = -diff.x as f32;
-                            scene.mouse_wheel(
-                                ctrl(&imgui),
-                                imgui.key_shift(),
-                                imgui.key_alt(),
-                                diff_x,
-                                diff.y as f32,
-                            );
-                        }
                     }
                     ReceivedCharacter(c) => imgui.add_input_character(c),
                     _ => (),
@@ -394,7 +335,7 @@ fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
         let logical_size = frame_size.logical_size;
         if logical_size.0 > 0.0 && logical_size.1 > 0.0 {
             let ui = imgui.frame(frame_size, delta_s);
-            if !scene.run_ui(&ui, &mut renderer) {
+            if !scene.run_ui(&ui) {
                 break;
             }
 
@@ -402,7 +343,6 @@ fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
             kbd_captured = ui.want_capture_keyboard();
 
             encoder.clear(&main_color, clear_color);
-            scene.render(&mut encoder);
             renderer
                 .render(ui, &mut factory, &mut encoder)
                 .expect("Rendering failed!");
@@ -412,6 +352,8 @@ fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
         }
     }
 }
+
+*/
 
 fn update_mouse(imgui: &mut ImGui, mouse_state: &mut MouseState) {
     imgui.set_mouse_pos(mouse_state.pos.0 as f32, mouse_state.pos.1 as f32);
@@ -466,14 +408,4 @@ fn dark_theme() -> [ImVec4; 43] {
         ImVec4::new(0.80, 0.80, 0.80, 0.35),
         ImVec4::new(1.00, 1.00, 0.00, 0.90),
     ]
-}
-
-#[cfg(not(target_os = "macos"))]
-fn ctrl(imgui: &ImGui) -> bool {
-    imgui.key_ctrl()
-}
-
-#[cfg(target_os = "macos")]
-fn ctrl(imgui: &ImGui) -> bool {
-    imgui.key_super()
 }

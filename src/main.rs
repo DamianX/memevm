@@ -4,7 +4,6 @@ extern crate log;
 extern crate enum_map;
 
 mod bits;
-mod curses_ui;
 mod disasm;
 mod vm;
 
