@@ -1,4 +1,4 @@
-use imgui::{FontGlyphRange, ImFontConfig, ImGui, ImVec4, Ui};
+use imgui::{ImFontConfig, ImGui, Ui};
 use imgui_gfx_renderer::{Renderer, Shaders};
 use imgui_winit_support;
 use std::time::Instant;
@@ -9,7 +9,7 @@ pub fn run(title: String, clear_color: [f32; 4], mut scene: Scene) {
     use gfx::{self, Device};
     use gfx_window_glutin;
     use glutin;
-    
+
     type ColorFormat = gfx::format::Rgba8;
     type DepthFormat = gfx::format::DepthStencil;
 
@@ -20,12 +20,13 @@ pub fn run(title: String, clear_color: [f32; 4], mut scene: Scene) {
         .with_dimensions(glutin::dpi::LogicalSize::new(1024f64, 768f64));
 
     let (window, mut device, mut factory, mut main_color, mut main_depth) =
-        gfx_window_glutin::init::<ColorFormat, DepthFormat>(window, context, &events_loop).expect("Unable to init gfx_window_glutin");
+        gfx_window_glutin::init::<ColorFormat, DepthFormat>(window, context, &events_loop)
+            .expect("Unable to init gfx_window_glutin");
 
     let (ww, wh): (f64, f64) = window.get_outer_size().unwrap().into();
     let (dw, dh): (f64, f64) = window.get_primary_monitor().get_dimensions().into();
     window.set_position(((dw - ww) / 2.0, (dh - wh) / 2.0).into());
-    
+
     let mut encoder: gfx::Encoder<_, _> = factory.create_command_buffer().into();
 
     let shaders = {
@@ -50,7 +51,7 @@ pub fn run(title: String, clear_color: [f32; 4], mut scene: Scene) {
     };
 
     let mut imgui = ImGui::init();
-  unsafe {
+    unsafe {
         device.with_gl(|gl| {
             gl.Disable(gfx_gl::FRAMEBUFFER_SRGB);
         });

@@ -104,7 +104,11 @@ impl VirtualMachine {
                 let requested_memory_range = mutex.memory_view_range;
                 let (range_start, range_length) = requested_memory_range;
                 mutex.registers = self.registers;
-                mutex.memory_view = Vec::from_iter(self.memory[range_start..=range_start+range_length].iter().cloned());
+                mutex.memory_view = Vec::from_iter(
+                    self.memory[range_start..=range_start + range_length]
+                        .iter()
+                        .cloned(),
+                );
             }
         };
     }

@@ -1,9 +1,4 @@
-use gfx_device_gl::{CommandBuffer, Factory, Resources};
-use glutin::VirtualKeyCode as Key;
-use imgui::*;
-use imgui::{FrameSize, ImFontConfig, ImGui, ImGuiMouseCursor, ImVec4};
-use imgui_gfx_renderer::{Renderer, Shaders};
-use std::time::Instant;
+use imgui::{im_str, ImGuiCond, Ui};
 
 use crate::bits::DiagnosticStatus;
 use std::sync::{Arc, Mutex};
@@ -13,18 +8,23 @@ mod support;
 
 extern crate gfx_gl as gl;
 
-type ColorFormat = gfx::format::Rgba8;
-type DepthFormat = gfx::format::DepthStencil;
-type Encoder = gfx::Encoder<Resources, CommandBuffer>;
-type RenderTargetView = gfx::handle::RenderTargetView<Resources, ColorFormat>;
-type DepthStencilView = gfx::handle::DepthStencilView<Resources, DepthFormat>;
-type ImRenderer = imgui_gfx_renderer::Renderer<Resources>;
+#[derive(Debug, PartialEq)]
+enum DisplayFormat {
+    Decimal,
+    Hexadecimal,
+    Octal,
+    Binary,
+}
 
-#[derive(Copy, Clone, PartialEq, Debug, Default)]
-struct MouseState {
-    pos: (i32, i32),
-    pressed: [bool; 5],
-    wheel: f32,
+impl DisplayFormat {
+    fn format(&self, input: u16) -> String {
+        match self {
+            DisplayFormat::Decimal => format!("{}", input),
+            DisplayFormat::Hexadecimal => format!("{:04X}", input),
+            DisplayFormat::Octal => format!("{:o}", input),
+            DisplayFormat::Binary => format!("{:016b}", input),
+        }
+    }
 }
 
 pub struct Scene {
@@ -33,32 +33,29 @@ pub struct Scene {
     memory_window_enabled: bool,
     console_window_enabled: bool,
     latest_diagnostics: DiagnosticStatus,
+    current_display_format: DisplayFormat,
 }
 impl Scene {
-    fn new(
-        diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>,
-    ) -> Self {
+    fn new(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) -> Self {
         Scene {
             diagnostics_mutex,
             registers_window_enabled: true,
             memory_window_enabled: true,
             console_window_enabled: true,
             latest_diagnostics: DiagnosticStatus::default(),
+            current_display_format: DisplayFormat::Hexadecimal,
         }
     }
 
     fn run_ui(&mut self, ui: &Ui) -> bool {
         ui.main_menu_bar(|| {
             ui.menu(im_str!("File")).build(|| {
-                if ui
-                    .menu_item(im_str!("Open"))
-                    .build()
-                {
+                if ui.menu_item(im_str!("Open")).build() {
                     println!("Open")
                 };
             });
         });
-        ui.show_metrics_window(&mut true);
+        //ui.show_metrics_window(&mut true);
         self.try_update_diagnostics();
         self.show_registers_window(ui);
         self.show_memory_window(ui);
@@ -81,8 +78,26 @@ impl Scene {
         ui.window(im_str!("Registers"))
             .opened(&mut opened)
             .position((10.0, 30.0), ImGuiCond::FirstUseEver)
+            .size((170.0, 310.0), ImGuiCond::FirstUseEver)
             .build(|| {
-                ui.text(im_str!("{:?}", self.latest_diagnostics.registers));
+                let register_name_max_length = 4;
+                for (register, contents) in self.latest_diagnostics.registers {
+                    let register_name = format!("{:?}", register);
+                    let additional_spaces = " ".repeat(register_name_max_length - register_name.len());
+                    ui.text(im_str!("{}:{}{}", register_name, additional_spaces, self.current_display_format.format(contents)));
+                }
+                if ui.radio_button_bool(im_str!("Hex"), self.current_display_format == DisplayFormat::Hexadecimal) {
+                    self.current_display_format = DisplayFormat::Hexadecimal;
+                }
+                if ui.radio_button_bool(im_str!("Dec"), self.current_display_format == DisplayFormat::Decimal) {
+                    self.current_display_format = DisplayFormat::Decimal;
+                }
+                if ui.radio_button_bool(im_str!("Oct"), self.current_display_format == DisplayFormat::Octal) {
+                    self.current_display_format = DisplayFormat::Octal;
+                }
+                if ui.radio_button_bool(im_str!("Bin"), self.current_display_format == DisplayFormat::Binary) {
+                    self.current_display_format = DisplayFormat::Binary;
+                }
             });
         self.registers_window_enabled = opened;
     }
@@ -98,24 +113,22 @@ impl Scene {
             .size((720.0, 350.0), ImGuiCond::FirstUseEver)
             .build(|| {
                 self.latest_diagnostics.memory_view_range = (0x3000, 256);
-                let meme = unsafe { std::slice::from_raw_parts(
-                    self.latest_diagnostics.memory_view.as_ptr() as *const u8,
-                    self.latest_diagnostics.memory_view.len() * std::mem::size_of::<u16>(),
-                    )};
+                let meme = unsafe {
+                    std::slice::from_raw_parts(
+                        self.latest_diagnostics.memory_view.as_ptr() as *const u8,
+                        self.latest_diagnostics.memory_view.len() * std::mem::size_of::<u16>(),
+                    )
+                };
                 ui.text(im_str!("len: {}", meme.len()));
                 for line in hexdump::hexdump_iter(&meme) {
                     ui.text(im_str!("{}", line));
                 }
-        });
+            });
         self.memory_window_enabled = opened;
     }
 
-    fn show_console_window(&mut self, ui: &Ui) {
-
-    }
+    fn show_console_window(&mut self, _ui: &Ui) {}
 }
-
-fn configure_keys(imgui: &mut ImGui) {}
 
 pub fn run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
     thread::spawn(move || {
@@ -354,58 +367,3 @@ pub fn run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
 }
 
 */
-
-fn update_mouse(imgui: &mut ImGui, mouse_state: &mut MouseState) {
-    imgui.set_mouse_pos(mouse_state.pos.0 as f32, mouse_state.pos.1 as f32);
-    imgui.set_mouse_down(mouse_state.pressed);
-    imgui.set_mouse_wheel(mouse_state.wheel);
-    mouse_state.wheel = 0.0;
-}
-
-fn dark_theme() -> [ImVec4; 43] {
-    [
-        ImVec4::new(1.00, 1.00, 1.00, 1.00),
-        ImVec4::new(0.50, 0.50, 0.50, 1.00),
-        ImVec4::new(0.06, 0.06, 0.06, 0.94),
-        ImVec4::new(1.00, 1.00, 1.00, 0.00),
-        ImVec4::new(0.08, 0.08, 0.08, 0.94),
-        ImVec4::new(0.43, 0.43, 0.50, 0.50),
-        ImVec4::new(0.00, 0.00, 0.00, 0.00),
-        ImVec4::new(0.16, 0.29, 0.48, 0.54),
-        ImVec4::new(0.26, 0.59, 0.98, 0.40),
-        ImVec4::new(0.26, 0.59, 0.98, 0.67),
-        ImVec4::new(0.04, 0.04, 0.04, 1.00),
-        ImVec4::new(0.16, 0.29, 0.48, 1.00),
-        ImVec4::new(0.00, 0.00, 0.00, 0.51),
-        ImVec4::new(0.14, 0.14, 0.14, 1.00),
-        ImVec4::new(0.02, 0.02, 0.02, 0.53),
-        ImVec4::new(0.31, 0.31, 0.31, 1.00),
-        ImVec4::new(0.41, 0.41, 0.41, 1.00),
-        ImVec4::new(0.51, 0.51, 0.51, 1.00),
-        ImVec4::new(0.26, 0.59, 0.98, 1.00),
-        ImVec4::new(0.24, 0.52, 0.88, 1.00),
-        ImVec4::new(0.26, 0.59, 0.98, 1.00),
-        ImVec4::new(0.26, 0.59, 0.98, 0.40),
-        ImVec4::new(0.26, 0.59, 0.98, 1.00),
-        ImVec4::new(0.06, 0.53, 0.98, 1.00),
-        ImVec4::new(0.26, 0.59, 0.98, 0.31),
-        ImVec4::new(0.26, 0.59, 0.98, 0.80),
-        ImVec4::new(0.26, 0.59, 0.98, 1.00),
-        ImVec4::new(0.43, 0.43, 0.50, 0.50),
-        ImVec4::new(0.10, 0.40, 0.75, 0.78),
-        ImVec4::new(0.10, 0.40, 0.75, 1.00),
-        ImVec4::new(0.26, 0.59, 0.98, 0.25),
-        ImVec4::new(0.26, 0.59, 0.98, 0.67),
-        ImVec4::new(0.26, 0.59, 0.98, 0.95),
-        ImVec4::new(0.41, 0.41, 0.41, 0.50),
-        ImVec4::new(0.98, 0.39, 0.36, 1.00),
-        ImVec4::new(0.98, 0.39, 0.36, 1.00),
-        ImVec4::new(0.61, 0.61, 0.61, 1.00),
-        ImVec4::new(1.00, 0.43, 0.35, 1.00),
-        ImVec4::new(0.90, 0.70, 0.00, 1.00),
-        ImVec4::new(1.00, 0.60, 0.00, 1.00),
-        ImVec4::new(0.26, 0.59, 0.98, 0.35),
-        ImVec4::new(0.80, 0.80, 0.80, 0.35),
-        ImVec4::new(1.00, 1.00, 0.00, 0.90),
-    ]
-}
