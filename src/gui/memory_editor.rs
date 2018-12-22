@@ -466,7 +466,7 @@ impl MemoryEditor {
                 unsafe {
                     imgui::sys::igSameLine(sizes.pos_ascii_start, 0.0);
                 }
-                let pos = ui.get_cursor_screen_pos();
+                let mut pos = ui.get_cursor_screen_pos();
                 addr = line_i as usize * self.cols;
                 unsafe {
                     imgui::sys::igPushIDInt(line_i);
@@ -485,7 +485,7 @@ impl MemoryEditor {
                     imgui::sys::igPopID();
                 }
                 let mut n = 0;
-                while n < self.cols && addr < mem_size {
+                while n < self.cols && addr < mem_size - 1 {
                     n += 1;
                     addr += 1;
                     if addr == self.data_editing_addr {
@@ -508,8 +508,115 @@ impl MemoryEditor {
                             );
                         }
                     }
+                    let c = mem_data[addr]; // TODO readfn
+                    let display_c = if c < 32 || c >= 128 { '.' } else { c as char }.to_string();
+                    let color_for_this = if &display_c == "." { color_disabled } else { color_text };
+                    unsafe {
+                        imgui::sys::ImDrawList_AddText(
+                            draw_list as *mut imgui::sys::ImDrawList,
+                            pos.into(),
+                            color_for_this,
+                            display_c.as_ptr() as *const i8,
+                            display_c.as_ptr().offset(1) as *const i8,
+                        )
+                    }
+                    pos.0 += sizes.glyph_width;
                 }
             }
+        }
+        unsafe {
+            imgui::sys::ImGuiListClipper_End(
+                &mut clipper as *mut imgui::sys::ImGuiListClipper
+            );
+        }
+        unsafe {
+            imgui::sys::igPopStyleVar(2);
+            imgui::sys::igEndChild();
+        }
+
+        if data_next && self.data_editing_addr < mem_size {
+            self.data_editing_addr += 1;
+            self.data_preview_addr = self.data_editing_addr;
+            self.data_editing_take_focus = true;
+        } else if data_editing_addr_next != usize::max_value() {
+            self.data_editing_addr = data_editing_addr_next;
+            self.data_preview_addr = self.data_editing_addr;
+        }
+
+        let mut next_show_data_preview = self.opt_show_data_preview;
+        if self.opt_show_options {
+            ui.separator();
+
+            // Options menu
+            if ui.button(im_str!("Options"), (20.0, 20.0)) {
+                ui.open_popup(im_str!("context"));
+            }
+            ui.popup_modal(im_str!("context")).build(|| {
+                ui.push_item_width(56.0);
+                let mut my_cols = self.cols as i32;
+                if ui.drag_int(im_str!("##cols"), &mut my_cols).build() {
+                    self.contents_width_changed = true;
+                }
+                ui.pop_item_width();
+                ui.checkbox(im_str!("Show data preview"), &mut next_show_data_preview);
+                ui.checkbox(im_str!("Show HexII"), &mut self.opt_show_hexII);
+                if ui.checkbox(im_str!("Show ASCII"), &mut self.opt_show_ascii) {
+                    self.contents_width_changed = true;
+                }
+                ui.checkbox(im_str!("Grey out zeroes"), &mut self.opt_grey_out_zeroes);
+                ui.checkbox(im_str!("Uppercase Hex"), &mut self.opt_uppercase_hex);
+                self.cols = my_cols as usize;
+            });
+            ui.same_line(0.0);
+            ui.text(im_str!("{}: {}, {}, {}", sizes.addr_digits_count, base_display_addr, sizes.addr_digits_count, base_display_addr + mem_size - 1));
+            ui.same_line(0.0);
+            ui.push_item_width((sizes.addr_digits_count as f32 + 1.0) * sizes.glyph_width + style.frame_padding.x * 2.0);
+
+            unsafe {
+                if ui.input_text(
+                    im_str!("##addr"),
+                    std::mem::transmute(&mut self.addr_input_buf)
+                ).build() {
+                    self.goto_addr = base_display_addr + 1; // todo wtf
+                    self.highlight_min = usize::max_value();
+                    self.highlight_max = usize::max_value();
+                }
+            }
+            ui.pop_item_width();
+
+            if self.goto_addr != usize::max_value() {
+                if self.goto_addr < mem_size {
+                    unsafe {
+                        imgui::sys::igBeginChild(
+                            im_str!("##scrolling").as_ptr(),
+                            (0.0, 0.0).into(),
+                            false,
+                            imgui::sys::ImGuiWindowFlags::empty()
+                        );
+                        imgui::sys::igSetScrollFromPosY(
+                            imgui::sys::igGetCursorStartPos().y + (self.goto_addr / self.cols) as f32 * imgui::sys::igGetTextLineHeight(),
+                            0.0,
+                        );
+                        imgui::sys::igEndChild();
+                    }
+                    self.data_editing_addr = self.goto_addr;
+                    self.data_preview_addr = self.goto_addr;
+                    self.data_editing_take_focus = true;
+                } else {
+                    self.goto_addr = usize::max_value();
+                }
+            }
+        }
+
+        if self.opt_show_data_preview {
+            ui.separator();
+            unsafe {
+                imgui::sys::igAlignTextToFramePadding();
+            }
+            ui.text(im_str!("Preview as: "));
+            ui.same_line(0.0);
+            ui.push_item_width(sizes.glyph_width * 10.0 + style.frame_padding.x * 2.0 + style.item_inner_spacing.x);
+
         }
     }
 }
