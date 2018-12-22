@@ -68,6 +68,7 @@ pub struct MemoryEditor {
     opt_uppercase_hex: bool, // display hexadecimal values as "FF" instead of "ff".
     opt_mid_cols_count: usize, // set to 0 to disable extra spacing between every mid-cols.
     opt_addr_digits_count: usize, // number of addr digits to display (default calculated based on maximum displayed addr).
+    highlight_color: u32, // background color of highlighted bytes.
 
     // [Internal state]
     contents_width_changed: bool,
@@ -97,6 +98,7 @@ impl Default for MemoryEditor {
             opt_uppercase_hex: true,
             opt_mid_cols_count: 8,
             opt_addr_digits_count: 0,
+            highlight_color: 0xFF_FF_FF_32,
 
             contents_width_changed: false,
             data_preview_addr: usize::max_value(),
@@ -278,6 +280,235 @@ impl MemoryEditor {
                     imgui::sys::igGetColorU32U32(imgui::sys::ImGuiCol::Border as u32),
                     0.0
                 );
+            }
+        }
+
+        let color_text = unsafe {
+            imgui::sys::igGetColorU32U32(imgui::sys::ImGuiCol::Text as u32)
+        };
+        let color_disabled = if self.opt_grey_out_zeroes {
+            unsafe {
+                imgui::sys::igGetColorU32U32(imgui::sys::ImGuiCol::TextDisabled as u32)
+            }
+        } else {
+               color_text
+        };
+
+        let format_address = if self.opt_uppercase_hex {
+            "string to format uppercase hex"
+        } else {
+            "string to format lowercase hex"
+        };
+
+        let format_data = if self.opt_uppercase_hex {
+            "string to format uppercase hex"
+        } else {
+            "string to format lowercase hex"
+        };
+
+        let format_range = if self.opt_uppercase_hex {
+            "string to format uppercase hex"
+        } else {
+            "string to format lowercase hex"
+        };
+
+        let format_byte = if self.opt_uppercase_hex {
+            "string to format uppercase hex"
+        } else {
+            "string to format lowercase hex"
+        };
+
+        let format_byte_space = if self.opt_uppercase_hex {
+            "string to format uppercase hex"
+        } else {
+            "string to format lowercase hex"
+        };
+
+        let mut line_i = clipper.display_start;
+        while line_i < clipper.display_end {
+            line_i += 1;
+            let mut addr = line_i as usize * self.cols;
+            ui.text(im_str!("{:x}: {}", sizes.addr_digits_count, base_display_addr + addr as usize));
+            
+            // draw hexadecimal
+            let mut n = 0;
+            while n < self.cols && addr < mem_size {
+                n += 1;
+                addr += 1;
+
+                let mut byte_pos_x = sizes.pos_hex_start + sizes.hex_cell_width * n as f32;
+                if self.opt_mid_cols_count > 0 {
+                    byte_pos_x += (n / self.opt_mid_cols_count) as f32 * sizes.spacing_between_mid_cols;
+                }
+                ui.same_line(byte_pos_x);
+
+                let is_highlight_from_user_range = (addr >= self.highlight_min && addr < self.highlight_max);
+                let is_highlight_from_user_func = false; // TODO
+                let is_highlight_from_preview = (addr >= self.data_preview_addr && addr < self.data_preview_addr + self.preview_data_type.get_size());
+
+                if is_highlight_from_user_range || is_highlight_from_user_func || is_highlight_from_preview {
+                    let pos = ui.get_cursor_screen_pos();
+                    let mut highlight_width = sizes.glyph_width * 2.0;
+                    let is_next_byte_highlighted = (addr + 1 < mem_size) && ((self.highlight_max != usize::max_value() && addr + 1 < self.highlight_max) || false); // TODO
+                    if is_next_byte_highlighted || (n + 1) == self.cols {
+                        highlight_width = sizes.hex_cell_width;
+                        if self.opt_mid_cols_count > 0 && n > 0 && (n + 1) < self.cols && ((n + 1) % self.opt_mid_cols_count) == 0 {
+                            highlight_width += sizes.spacing_between_mid_cols;
+                        }
+                        unsafe {
+                            imgui::sys::ImDrawList_AddRectFilled(
+                                draw_list as *mut imgui::sys::ImDrawList,
+                                (pos.0 + highlight_width, pos.1 + sizes.line_height).into(),
+                                (pos.0 + highlight_width, pos.1 + sizes.line_height).into(), //TODO FIXME wrong parameters?
+                                self.highlight_color,
+                                0.0,
+                                imgui::sys::ImDrawCornerFlags::empty(),
+                            )
+                        }
+                    }
+
+                    if self.data_editing_addr == addr {
+                        let mut data_write = false;
+                        unsafe {
+                            imgui::sys::igPushIDInt(addr as i32);
+                        }
+                        if self.data_editing_take_focus {
+                            unsafe {
+                                imgui::sys::igSetKeyboardFocusHere(0);
+                            }
+                            unsafe {
+                                imgui::sys::igCaptureKeyboardFromApp(true);
+                            }
+                            self.addr_input_buf = {
+                                let mut buf = [0; 32];
+                                let vec: Vec<u8> = format!("{}: {}", sizes.addr_digits_count, base_display_addr + addr)
+                                    .bytes()
+                                    .take(buf.len())
+                                    .collect();
+                                buf.copy_from_slice(&vec); // TODO ReadFn
+                                buf
+                            };
+                            self.data_input_buf = {
+                                let mut buf = [0; 32];
+                                let vec: Vec<u8> = format!("{}", mem_data[addr])
+                                    .bytes()
+                                    .take(buf.len())
+                                    .collect();
+                                buf.copy_from_slice(&vec); // TODO ReadFn
+                                buf
+                            };
+                        }
+                        unsafe {
+                            imgui::sys::igPushItemWidth(sizes.glyph_width * 2.0);
+                        }
+                        // TODO InputTextCallback
+                        unsafe {
+                            if ui.input_text(
+                                im_str!("##data"),
+                            std::mem::transmute(&mut self.data_input_buf)
+                            ).build() {
+                                data_write = true;
+                                data_next = true;
+                            } else if !self.data_editing_take_focus && !imgui::sys::igIsItemActive() {
+                                self.data_editing_addr = usize::max_value();
+                                data_editing_addr_next = usize::max_value();
+                            }
+                        }
+                        self.data_editing_take_focus = false;
+                        unsafe {
+                            imgui::sys::igPopItemWidth();
+                            if true { // Todo callback
+                                data_write = true;
+                                data_next = true;
+                            }
+                            if data_editing_addr_next != usize::max_value() {
+                                data_write = false;
+                                data_next = false;
+                            }
+                            let mut data_input_value = 0;
+                            // todo scanf
+                        }
+                        unsafe { imgui::sys::igPopID(); }
+                    }
+                    else {
+                        let b = mem_data[addr];
+
+                        if self.opt_show_hexII {
+                            if b >= 32 && b < 128 {
+                                ui.text(im_str!("{}", b));
+                            } else if b == 0xFF && self.opt_grey_out_zeroes {
+                                ui.text_disabled(im_str!("## "));
+                            } else if b == 0x00 {
+                                ui.text(im_str!("  "));
+                            } else {
+                                ui.text(im_str!("{}", b));
+                            }
+                        } else {
+                            if b == 0 && self.opt_grey_out_zeroes {
+                                ui.text_disabled(im_str!("00 "));
+                            } else {
+                                ui.text(im_str!("{}", b));
+                            }
+                        }
+
+                        unsafe {
+                            if !self.read_only && imgui::sys::igIsItemHovered(imgui::sys::ImGuiHoveredFlags::empty()) && imgui::sys::igIsMouseClicked(0, false) {
+                                self.data_editing_take_focus = true;
+                                data_editing_addr_next = addr;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if self.opt_show_ascii {
+                // Draw ASCII values
+                unsafe {
+                    imgui::sys::igSameLine(sizes.pos_ascii_start, 0.0);
+                }
+                let pos = ui.get_cursor_screen_pos();
+                addr = line_i as usize * self.cols;
+                unsafe {
+                    imgui::sys::igPushIDInt(line_i);
+                }
+                if ui.invisible_button(
+                    im_str!("ascii"),
+                    (sizes.pos_ascii_end - sizes.pos_ascii_start, sizes.line_height)
+                ) {
+                    let thing = unsafe {
+                        ((*imgui::sys::igGetIO()).mouse_pos.x - pos.0 / sizes.glyph_width) as usize
+                    };
+                    self.data_editing_addr = addr + thing;
+                    self.data_editing_take_focus = true;
+                }
+                unsafe {
+                    imgui::sys::igPopID();
+                }
+                let mut n = 0;
+                while n < self.cols && addr < mem_size {
+                    n += 1;
+                    addr += 1;
+                    if addr == self.data_editing_addr {
+                        unsafe {
+                            imgui::sys::ImDrawList_AddRectFilled(
+                                draw_list as *mut imgui::sys::ImDrawList,
+                                pos.into(),
+                                (pos.0 + sizes.glyph_width, pos.1 + sizes.line_height).into(), //TODO FIXME wrong parameters?
+                                imgui::sys::igGetColorU32U32(imgui::sys::ImGuiCol::FrameBg as u32),
+                                0.0,
+                                imgui::sys::ImDrawCornerFlags::empty(),
+                            );
+                            imgui::sys::ImDrawList_AddRectFilled(
+                                draw_list as *mut imgui::sys::ImDrawList,
+                                pos.into(),
+                                (pos.0 + sizes.glyph_width, pos.1 + sizes.line_height).into(), //TODO FIXME wrong parameters?
+                                imgui::sys::igGetColorU32U32(imgui::sys::ImGuiCol::TextSelectedBg as u32),
+                                0.0,
+                                imgui::sys::ImDrawCornerFlags::empty(),
+                            );
+                        }
+                    }
+                }
             }
         }
     }
