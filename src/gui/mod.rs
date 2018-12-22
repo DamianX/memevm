@@ -5,6 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 mod support;
+mod memory_editor;
+
+use self::memory_editor::MemoryEditor;
 
 extern crate gfx_gl as gl;
 
@@ -34,6 +37,7 @@ pub struct Scene {
     console_window_enabled: bool,
     latest_diagnostics: DiagnosticStatus,
     current_display_format: DisplayFormat,
+    memory_editor: MemoryEditor,
 }
 impl Scene {
     fn new(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) -> Self {
@@ -44,10 +48,17 @@ impl Scene {
             console_window_enabled: true,
             latest_diagnostics: DiagnosticStatus::default(),
             current_display_format: DisplayFormat::Hexadecimal,
+            memory_editor: MemoryEditor::default(),
         }
     }
 
     fn run_ui(&mut self, ui: &Ui) -> bool {
+        ui.show_metrics_window(&mut true);
+        self.memory_editor.draw_contents(ui);
+        true
+    }
+
+    fn real_run_ui(&mut self, ui: &Ui) -> bool {
         ui.main_menu_bar(|| {
             ui.menu(im_str!("File")).build(|| {
                 if ui.menu_item(im_str!("Open")).build() {
@@ -98,6 +109,7 @@ impl Scene {
                 if ui.radio_button_bool(im_str!("Bin"), self.current_display_format == DisplayFormat::Binary) {
                     self.current_display_format = DisplayFormat::Binary;
                 }
+                ui.selectable(im_str!("memes"), true, imgui::ImGuiSelectableFlags::all(), (50.0, 50.0));
             });
         self.registers_window_enabled = opened;
     }
