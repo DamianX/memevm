@@ -452,7 +452,7 @@ impl MemoryEditor {
                         }
 
                         unsafe {
-                            if !self.read_only && imgui::sys::igIsItemHovered(imgui::sys::ImGuiHoveredFlags::empty()) && imgui::sys::igIsMouseClicked(0, false) {
+                            if !self.read_only && ui.is_item_hovered() && imgui::sys::igIsMouseClicked(0, false) {
                                 self.data_editing_take_focus = true;
                                 data_editing_addr_next = addr;
                             }
@@ -616,7 +616,6 @@ impl MemoryEditor {
             ui.text(im_str!("Preview as: "));
             ui.same_line(0.0);
             ui.push_item_width(sizes.glyph_width * 10.0 + style.frame_padding.x * 2.0 + style.item_inner_spacing.x);
-
         }
     }
 }
