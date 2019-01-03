@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 mod support;
-mod memory_editor;
+//mod memory_editor;
 
-use self::memory_editor::MemoryEditor;
+//use self::memory_editor::MemoryEditor;
 
 extern crate gfx_gl as gl;
 
@@ -37,7 +37,7 @@ pub struct Scene {
     console_window_enabled: bool,
     latest_diagnostics: DiagnosticStatus,
     current_display_format: DisplayFormat,
-    memory_editor: MemoryEditor,
+//    memory_editor: MemoryEditor,
 }
 impl Scene {
     fn new(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) -> Self {
@@ -48,14 +48,14 @@ impl Scene {
             console_window_enabled: true,
             latest_diagnostics: DiagnosticStatus::default(),
             current_display_format: DisplayFormat::Hexadecimal,
-            memory_editor: MemoryEditor::default(),
+//            memory_editor: MemoryEditor::default(),
         }
     }
 
     fn run_ui(&mut self, ui: &Ui) -> bool {
         ui.show_metrics_window(&mut true);
-        self.memory_editor.draw_contents(ui);
-        true
+        //self.memory_editor.draw_contents(ui);
+        self.real_run_ui(ui)
     }
 
     fn real_run_ui(&mut self, ui: &Ui) -> bool {
@@ -109,7 +109,6 @@ impl Scene {
                 if ui.radio_button_bool(im_str!("Bin"), self.current_display_format == DisplayFormat::Binary) {
                     self.current_display_format = DisplayFormat::Binary;
                 }
-                ui.selectable(im_str!("memes"), true, imgui::ImGuiSelectableFlags::all(), (50.0, 50.0));
             });
         self.registers_window_enabled = opened;
     }
@@ -148,234 +147,3 @@ pub fn run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
         support::run("lc3vm".to_owned(), [0.25, 0.25, 0.5, 1.0], scene);
     });
 }
-
-/*fn actual_run(diagnostics_mutex: Arc<Mutex<DiagnosticStatus>>) {
-    use gfx::{self, Device};
-    use gfx_window_glutin;
-    use glutin::{self, GlContext};
-
-    let mut events_loop = glutin::EventsLoop::new();
-    let context = glutin::ContextBuilder::new().with_vsync(true);
-    let window = glutin::WindowBuilder::new()
-        .with_title("memevm")
-        .with_min_dimensions(glutin::dpi::LogicalSize::new(600.0, 800.0))
-        .with_dimensions(glutin::dpi::LogicalSize::new(800.0, 800.0));
-    let (window, mut device, mut factory, mut main_color, mut main_depth) =
-        gfx_window_glutin::init::<ColorFormat, DepthFormat>(window, context, &events_loop)
-            .expect("Failed to create window");
-
-    unsafe {
-        device.with_gl(|gl| {
-            gl.Disable(gl::FRAMEBUFFER_SRGB);
-        });
-    }
-
-    let (ww, wh): (f64, f64) = window.get_outer_size().unwrap().into();
-    let (dw, dh): (f64, f64) = window.get_primary_monitor().get_dimensions().into();
-    window.set_position(((dw - ww) / 2.0, (dh - wh) / 2.0).into());
-
-    let mut encoder: Encoder = factory.create_command_buffer().into();
-
-    let shaders = {
-        let version = device.get_info().shading_language;
-        if version.is_embedded {
-            if version.major >= 3 {
-                Shaders::GlSlEs300
-            } else {
-                Shaders::GlSlEs100
-            }
-        } else if version.major >= 4 {
-            Shaders::GlSl400
-        } else if version.major >= 3 {
-            Shaders::GlSl130
-        } else {
-            Shaders::GlSl110
-        }
-    };
-
-    let mut imgui = ImGui::init();
-    imgui.style_mut().colors.clone_from(&dark_theme());
-    imgui.set_ini_filename(None);
-
-    let mut window_hidpi_factor = window.get_hidpi_factor();
-    let mut hidpi_factor = window_hidpi_factor.round();
-
-    let mut frame_size = FrameSize {
-        logical_size: window
-            .get_inner_size()
-            .unwrap()
-            .to_physical(window_hidpi_factor)
-            .to_logical(hidpi_factor)
-            .into(),
-        hidpi_factor,
-    };
-
-    let font_size = (13.0 * hidpi_factor) as f32;
-
-    imgui.fonts().add_default_font_with_config(
-        ImFontConfig::new()
-            .oversample_h(1)
-            .pixel_snap_h(true)
-            .size_pixels(font_size),
-    );
-
-    imgui.set_font_global_scale((1.0 / hidpi_factor) as f32);
-
-    let mut renderer = Renderer::init(&mut imgui, &mut factory, shaders, main_color.clone())
-        .expect("Failed to initialize renderer");
-
-    configure_keys(&mut imgui);
-
-    let mut scene = Scene::new(&mut factory, &main_color, &main_depth, diagnostics_mutex);
-
-    let mut last_frame = Instant::now();
-    let mut mouse_state = MouseState::default();
-    let mut quit = false;
-    let mut mouse_captured = false;
-    let mut kbd_captured = false;
-
-    loop {
-        events_loop.poll_events(|event| {
-            use glutin::ElementState::Pressed;
-            use glutin::WindowEvent::*;
-            use glutin::{Event, MouseButton, MouseScrollDelta, TouchPhase};
-
-            if let Event::WindowEvent { event, .. } = event {
-                match event {
-                    CloseRequested => quit = true,
-                    Resized(new_logical_size) => {
-                        gfx_window_glutin::update_views(&window, &mut main_color, &mut main_depth);
-                        window.resize(new_logical_size.to_physical(hidpi_factor));
-                        renderer.update_render_target(main_color.clone());
-                        frame_size.logical_size = new_logical_size
-                            .to_physical(window_hidpi_factor)
-                            .to_logical(hidpi_factor)
-                            .into();
-                    }
-                    HiDpiFactorChanged(new_factor) => {
-                        window_hidpi_factor = new_factor;
-                        hidpi_factor = window_hidpi_factor.round();
-                        frame_size.hidpi_factor = hidpi_factor;
-                        frame_size.logical_size = window
-                            .get_inner_size()
-                            .unwrap()
-                            .to_physical(window_hidpi_factor)
-                            .to_logical(hidpi_factor)
-                            .into();
-                    }
-                    Focused(false) => {
-                        // If the window is unfocused, unset modifiers, or
-                        // Alt-Tab will set it permanently & cause trouble. No,
-                        // I don't know why this doesn't just work.
-                        imgui.set_key_ctrl(false);
-                        imgui.set_key_alt(false);
-                        imgui.set_key_shift(false);
-                        imgui.set_key_super(false);
-                    }
-                    KeyboardInput { input, .. } => {
-                        use glutin::VirtualKeyCode as Key;
-
-                        let pressed = input.state == Pressed;
-                        match input.virtual_keycode {
-                            Some(Key::Tab) => imgui.set_key(0, pressed),
-                            _ => {}
-                        }
-                    }
-                    CursorMoved { position, .. } => {
-                        // Rescale position from glutin logical coordinates to our logical
-                        // coordinates
-                        let pos = position
-                            .to_physical(window_hidpi_factor)
-                            .to_logical(hidpi_factor)
-                            .into();
-                        mouse_state.pos = pos;
-                    }
-                    MouseInput { state, button, .. } => match button {
-                        MouseButton::Left => mouse_state.pressed[0] = state == Pressed,
-                        MouseButton::Right => mouse_state.pressed[1] = state == Pressed,
-                        MouseButton::Middle => mouse_state.pressed[2] = state == Pressed,
-                        MouseButton::Other(i) => {
-                            if let Some(b) = mouse_state.pressed.get_mut(2 + i as usize) {
-                                *b = state == Pressed;
-                            }
-                        }
-                    },
-                    MouseWheel {
-                        delta: MouseScrollDelta::LineDelta(x, y),
-                        phase: TouchPhase::Moved,
-                        ..
-                    } => {
-                        mouse_state.wheel = y;
-                    }
-                    MouseWheel {
-                        delta: MouseScrollDelta::PixelDelta(pos),
-                        phase: TouchPhase::Moved,
-                        ..
-                    } => {
-                        // Rescale pixel delta from glutin logical coordinates to our logical
-                        // coordinates
-                        let diff = pos
-                            .to_physical(window_hidpi_factor)
-                            .to_logical(hidpi_factor);
-                        mouse_state.wheel = diff.y as f32;
-                    }
-                    ReceivedCharacter(c) => imgui.add_input_character(c),
-                    _ => (),
-                }
-            }
-        });
-        if quit {
-            break;
-        }
-
-        let now = Instant::now();
-        let delta = now - last_frame;
-        let delta_s = delta.as_secs() as f32 + delta.subsec_nanos() as f32 / 1_000_000_000.0;
-        last_frame = now;
-
-        update_mouse(&mut imgui, &mut mouse_state);
-
-        let mouse_cursor = imgui.mouse_cursor();
-        if imgui.mouse_draw_cursor() || mouse_cursor == ImGuiMouseCursor::None {
-            // Hide OS cursor
-            window.hide_cursor(true);
-        } else {
-            // Set OS cursor
-            window.hide_cursor(false);
-            window.set_cursor(match mouse_cursor {
-                ImGuiMouseCursor::None => unreachable!("mouse_cursor was None!"),
-                ImGuiMouseCursor::Arrow => glutin::MouseCursor::Arrow,
-                ImGuiMouseCursor::TextInput => glutin::MouseCursor::Text,
-                ImGuiMouseCursor::Move => glutin::MouseCursor::Move,
-                ImGuiMouseCursor::ResizeNS => glutin::MouseCursor::NsResize,
-                ImGuiMouseCursor::ResizeEW => glutin::MouseCursor::EwResize,
-                ImGuiMouseCursor::ResizeNESW => glutin::MouseCursor::NeswResize,
-                ImGuiMouseCursor::ResizeNWSE => glutin::MouseCursor::NwseResize,
-            });
-        }
-
-        // Workaround: imgui-gfx-renderer will not call ui.render() under this
-        // condition, which occurs when minimized, and imgui will assert
-        // because of missing either a Render() or EndFrame() call.
-        let logical_size = frame_size.logical_size;
-        if logical_size.0 > 0.0 && logical_size.1 > 0.0 {
-            let ui = imgui.frame(frame_size, delta_s);
-            if !scene.run_ui(&ui) {
-                break;
-            }
-
-            mouse_captured = ui.want_capture_mouse();
-            kbd_captured = ui.want_capture_keyboard();
-
-            encoder.clear(&main_color, clear_color);
-            renderer
-                .render(ui, &mut factory, &mut encoder)
-                .expect("Rendering failed!");
-            encoder.flush(&mut device);
-            window.swap_buffers().unwrap();
-            device.cleanup();
-        }
-    }
-}
-
-*/
