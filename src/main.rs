@@ -25,7 +25,7 @@ fn main() {
     //curses_ui::start(env.diagnostics_mutex.clone());
     let mut vm = vm::VirtualMachine::with_memory(u16::max_value() as usize);
     vm.read_image_file(&mut ::std::fs::File::open("./res/2048.obj").unwrap());
-    vm.add_diagnostic_mutex(env.diagnostics_mutex.clone());
+    //vm.add_diagnostic_mutex(env.diagnostics_mutex.clone());
     //vm.memory_dump();
     vm.run();
 }
